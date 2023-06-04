@@ -3,15 +3,15 @@
 export HOME=/root
 mkdir $HOME/kube
 
-function load_infra_config() {
-  INFRA_CONFIG=$(cat $HOME/infra_config.json)
+load_infra_config () {
+  INFRA_CONFIG=$(cat "$HOME/infra_config.json")
 }
 
-function load_workloads() {
+load_workloads () {
   WORKLOADS=$(cat $HOME/workloads.json)
 }
 
-function install_containerd() {
+install_containerd () {
 cat <<EOF > /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
@@ -23,13 +23,13 @@ EOF
  apt-get install -y ca-certificates socat ebtables apt-transport-https cloud-utils prips containerd jq python3
 }
 
-function enable_containerd() {
+enable_containerd () {
  systemctl daemon-reload
  systemctl enable containerd
  systemctl start containerd
 }
 
-function install_kube_tools {
+install_kube_tools () {
  export kube_version=$(cat $HOME/infra_config.json | jq -r .kube_version) && \
  echo "Installing Kubeadm tools..." ;
  sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab
@@ -41,7 +41,7 @@ function install_kube_tools {
  apt-get install -y kubelet=$kube_version kubeadm=$kube_version kubectl=$kube_version
 }
 
-function init_cluster_config {
+init_cluster_config () {
     export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token) && \
     export CNI_CIDR=$(cat $HOME/workloads.json | jq -r .cni_cidr) && \
     cat << EOF > /etc/kubeadm-config.yaml
@@ -64,7 +64,7 @@ EOF
     kubeadm init phase upload-certs --upload-certs
 }
 
-function init_cluster {
+init_cluster () {
     export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token) && \
     export CNI_CIDR=$(cat $HOME/workloads.json | jq -r .cni_cidr) && \
     echo "Initializing cluster..." && \
@@ -78,7 +78,7 @@ EOF
     kubeadm init --pod-network-cidr="$CNI_CIDR" --token "$kube_token"
 }
 
-function configure_network {
+configure_network () {
   for w in $(jq -r .cni_workloads[] < $HOME/workloads.json); do
     echo $w
     # we use `kubectl create` command instead of `apply` because it fails on kubernetes verison <1.22
@@ -88,7 +88,7 @@ function configure_network {
   done
 }
 
-function gpu_config {
+gpu_config () {
   export count_gpu=$(cat $HOME/infra_config.json | jq -r .count_gpu) && \
   if [ "$count_gpu" = "0" ]; then
 	echo "No GPU nodes to prepare for presently...moving on..."
@@ -97,7 +97,7 @@ function gpu_config {
   fi
 }
 
-function metal_lb {
+metal_lb () {
   export metal_namespace=$(cat $HOME/infra_config.json | jq -r .metal_namespace) && \
   export metal_configmap=$(cat $HOME/infra_config.json | jq -r .metal_configmap) && \
   export metal_network_cidr=$(cat $HOME/infra_config.json | jq -r .metal_network_cidr) && \
@@ -126,7 +126,7 @@ EOF
     # kubectl --kubeconfig=/etc/kubernetes/admin.conf create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)" && \
 }
 
-function kube_vip {
+kube_vip () {
   IMAGE=ghcr.io/kube-vip/kube-vip:v0.4.0
   kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://kube-vip.io/manifests/rbac.yaml
   ctr i pull $IMAGE
@@ -138,12 +138,12 @@ function kube_vip {
   --inCluster | kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
 }
 
-function ceph_pre_check {
+ceph_pre_check () {
   apt install -y lvm2 ; \
   modprobe rbd
 }
 
-function ceph_rook_basic {
+ceph_rook_basic () {
   export count=$(cat $HOME/infra_config.json | jq -r .count) && \
   cd $HOME/kube ; \
   mkdir ceph ;\
@@ -157,12 +157,12 @@ function ceph_rook_basic {
   if [ "$count" -gt 3 ]; then
 	  echo "Node count less than 3, creating minimal cluster" ; \
   	kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f $(cat $HOME/workloads.json | jq .ceph_cluster_minimal)
-  else 
+  else
   	kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f $(cat $HOME/workloads.json | jq .ceph_cluster)
   fi
 }
 
-function ceph_storage_class {
+ceph_storage_class () {
   cat << EOF > $HOME/kube/ceph-sc.yaml
 apiVersion: ceph.rook.io/v1
 kind: CephBlockPool
@@ -189,7 +189,7 @@ reclaimPolicy: Retain
 EOF
 }
 
-function gen_encryption_config {
+gen_encryption_config () {
   echo "Generating EncryptionConfig for cluster..." && \
   export BASE64_STRING=$(head -c 32 /dev/urandom | base64) && \
   cat << EOF > /etc/kubernetes/secrets.conf
@@ -206,28 +206,28 @@ resources:
 EOF
 }
 
-function modify_encryption_config {
+modify_encryption_config () {
 #Validate Encrypted Secret:
 # ETCDCTL_API=3 etcdctl --cert="/etc/kubernetes/pki/etcd/server.crt" --key="/etc/kubernetes/pki/etcd/server.key" --c
 acert="/etc/kubernetes/pki/etcd/ca.crt" get /registry/secrets/default/personal-secret | hexdump -C
   echo "Updating Kube APIServer Configuration for At-Rest Secret Encryption..." && \
   sed -i 's|- kube-apiserver|- kube-apiserver\n    - --experimental-encryption-provider-config=/etc/kubernetes/secrets.conf|g' /etc/kubernetes/manifests/kube-apiserver.yaml && \
   sed -i 's|  volumes:|  volumes:\n  - hostPath:\n      path: /etc/kubernetes/secrets.conf\n      type: FileOrCreate\n    name: secretconfig|g' /etc/kubernetes/manifests/kube-apiserver.yaml  && \
-  sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/secrets.conf\n      name: secretconfig\n      readOnly: true|g' /etc/kubernetes/manifests/kube-apiserver.yaml 
+  sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/secrets.conf\n      name: secretconfig\n      readOnly: true|g' /etc/kubernetes/manifests/kube-apiserver.yaml
 }
 
-function apply_extra {
+apply_extra () {
   workload_manifests=$(cat $HOME/workloads.json | jq .extra | sed "s/^\([\"']\)\(.*\)\1\$/\2/g" | tr , '\n') && \
   if [ "$workload_manifests" == "" ]; then
     echo "Done."
   else
-    for w in $workload_manifests; do 
+    for w in $workload_manifests; do
       kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $w
     done
   fi
 }
 
-function bgp_routes {
+bgp_routes () {
     GATEWAY_IP=$(curl https://metadata.platformequinix.com/metadata | jq -r ".network.addresses[] | select(.public == false) | .gateway")
     # TODO use metadata peer ips
     ip route add 169.254.255.1 via $GATEWAY_IP
@@ -235,7 +235,7 @@ function bgp_routes {
     sed -i.bak -E "/^\s+post-down route del -net 10\.0\.0\.0.* gw .*$/a \ \ \ \ up ip route add 169.254.255.1 via $GATEWAY_IP || true\n    up ip route add 169.254.255.2 via $GATEWAY_IP || true\n    down ip route del 169.254.255.1 || true\n    down ip route del 169.254.255.2 || true" /etc/network/interfaces
 }
 
-function install_ccm {
+install_ccm () {
   export equinix_api_key=$(cat $HOME/infra_config.json | jq -r .equinix_api_key) && \
   export equinix_project_id=$(cat $HOME/infra_config.json | jq -r .equinix_project_id) && \
   export equinix_metro=$(cat $HOME/infra_config.json | jq -r .equinix_metro) && \
