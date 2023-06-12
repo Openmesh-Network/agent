@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 export HOME=/root
 mkdir $HOME/kube
@@ -81,7 +81,7 @@ EOF
 configure_network () {
   for w in $(jq -r .cni_workloads[] < $HOME/workloads.json); do
     echo $w
-    # we use `kubectl create` command instead of `apply` because it fails on kubernetes verison <1.22
+    # we use `kubectl create` command instead of `apply` because it fails on kubernetes version <1.22
     # err: The CustomResourceDefinition "installations.operator.tigera.io" is invalid: metadata.annotations: Too long: must have at most 262144 bytes
     kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f $w
     sleep 30
@@ -101,29 +101,34 @@ metal_lb () {
   export metal_namespace=$(cat $HOME/infra_config.json | jq -r .metal_namespace) && \
   export metal_configmap=$(cat $HOME/infra_config.json | jq -r .metal_configmap) && \
   export metal_network_cidr=$(cat $HOME/infra_config.json | jq -r .metal_network_cidr) && \
+  echo "Applying MetalLB manifests..." && \
+    cd $HOME/kube && \
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release) && \
+    sleep 15
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release) 
+  sleep 30
+
   echo "Configuring MetalLB for $metal_network_cidr..." && \
     cd $HOME/kube ; \
     cat << EOF > metal_lb.yaml
-apiVersion: v1
-kind: ConfigMap
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
 metadata:
-  namespace: "$metal_namespace"
-  name: "$metal_configmap"
-data:
-  config: |
-    address-pools:
-    - name: metal-network
-      protocol: layer2
-      addresses:
-      - "$metal_network_cidr"
-EOF
+  name: production
+  namespace: $metal_namespace
+spec:
+  addresses:
+  - $metal_network_cidr
 
-  echo "Applying MetalLB manifests..." && \
-    cd $HOME/kube && \
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_namespace) && \
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release) && \
+---
+
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: empty
+  namespace: $metal_namespace
+EOF
     kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f metal_lb.yaml
-    # kubectl --kubeconfig=/etc/kubernetes/admin.conf create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)" && \
 }
 
 kube_vip () {
@@ -216,14 +221,10 @@ modify_encryption_config () {
 }
 
 apply_extra () {
-  workload_manifests=$(cat $HOME/workloads.json | jq .extra | sed "s/^\([\"']\)\(.*\)\1\$/\2/g" | tr , '\n') && \
-  if [ "$workload_manifests" == "" ]; then
-    echo "Done."
-  else
-    for w in $workload_manifests; do
-      kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $w
-    done
-  fi
+  for w in $(jq -r .extra[] < $HOME/workloads.json); do
+    echo $w
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $w
+  done
 }
 
 bgp_routes () {
