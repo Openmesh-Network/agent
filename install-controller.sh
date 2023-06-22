@@ -129,6 +129,8 @@ metadata:
   namespace: $metal_namespace
 EOF
     kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f metal_lb.yaml
+    sleep 15
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f metal_lb.yaml
 }
 
 kube_vip () {
