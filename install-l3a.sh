@@ -172,7 +172,7 @@ spec:
   issuerRef:
     name: letsencrypt-prod
   dnsNames:
-  - 'query.$uniq_id.tech.l3a.xyz'
+  - 'query.$uniq_id.tech.l3atom.com'
 EOF
 kubectl apply -f ./cert.yaml
 popd
@@ -205,9 +205,9 @@ export POSTGRES_PASSWORD=$(kubectl get secret --namespace l3a-v3 postgres-postgr
 export SUPERSET_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 16 | head -n 1)
 helm upgrade --install -n l3a-v3 superset . \
                                  --set "init.adminUser.password=$SUPERSET_PASSWORD" \
-                                 --set "ingress.hosts[0]=query.$uniq_id.tech.l3a.xyz" \
+                                 --set "ingress.hosts[0]=query.$uniq_id.tech.l3atom.com" \
                                  --set "ingress.tls[0].secretName=query-$uniq_id-tech-l3a-xyz-tls-static" \
-                                 --set "ingress.tls[0].hosts[0]=query.$uniq_id.tech.l3a.xyz" \
+                                 --set "ingress.tls[0].hosts[0]=query.$uniq_id.tech.l3atom.com" \
                                  --set "supersetNode.connections.db_pass=$POSTGRES_PASSWORD" \
                                  -f baremetal.yaml
 sleep 10
