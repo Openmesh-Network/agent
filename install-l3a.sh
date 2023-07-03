@@ -66,6 +66,64 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  name: data-zookeeper-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+     path: /data/zookeeper-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-controller-primary
+  claimRef:
+    name: data-zookeeper-0
+    namespace: confluence
+
+---
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: txnlogs-zookeeper-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+     path: /data/zookeeper-logs
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-controller-primary
+  claimRef:
+    name: txnlog-zookeeper-0
+    namespace: confluence
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
   name: kafka00-volume
 spec:
   capacity:
