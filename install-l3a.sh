@@ -21,6 +21,16 @@ metadata:
     storageclass.kubernetes.io/is-default-class: "true"
 provisioner: kubernetes.io/no-provisioner
 volumeBindingMode: WaitForFirstConsumer
+
+---
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: kafka
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+
 EOF
 kubectl apply -f ./sc.yaml
 
@@ -31,7 +41,7 @@ metadata:
   name: postgres-volume
 spec:
   capacity:
-    storage: 8Gi
+    storage: 40Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
@@ -47,23 +57,26 @@ spec:
           operator: In
           values:
           - $uniq_id-controller-primary
+  claimRef:
+    name: data-postgres-postgresql-0
+    namespace: l3a-v3
 
 ---
 
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: superset-volume
+  name: kafka00-volume
 spec:
   capacity:
-    storage: 8Gi
+    storage: 100Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: default-storage
+  storageClassName: kafka
   local:
-    path: /data/superset
+     path: /data/kafka
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -71,7 +84,66 @@ spec:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - $uniq_id-controller-primary
+          - $uniq_id-x86-blue-00
+  claimRef:
+    name: data0-kafka-0
+    namespace: confluence
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kafka01-volume
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+     path: /data/kafka
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-x86-blue-01
+  claimRef:
+    name: data0-kafka-1
+    namespace: confluence
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kafka03-volume
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+     path: /data/kafka
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-x86-blue-02
+  claimRef:
+    name: data0-kafka-2
+    namespace: confluence
 
 EOF
 kubectl apply -f ./pv.yaml
