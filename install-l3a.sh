@@ -216,8 +216,8 @@ kubectl apply -f ./crs/zookeeper.yaml
 sleep 10
 
 echo "patching zookeepers"
-kubectl patch pvc/data-zookeeper-0 -p '{"spec":{"volumeName":"data-zookeeper-volume"}}'
-kubectl patch pvc/txnlog-zookeeper-0 -p '{"spec":{"volumeName":"logs-zookeeper-volume"}}'
+kubectl patch -n confluent pvc/data-zookeeper-0 -p '{"spec":{"volumeName":"data-zookeeper-volume"}}'
+kubectl patch -n confluent pvc/txnlog-zookeeper-0 -p '{"spec":{"volumeName":"logs-zookeeper-volume"}}'
 sleep 2
 
 cat << EOF > ./zookeeper-pv.yaml
@@ -274,15 +274,15 @@ echo "creating zookeeper pv"
 kubectl apply -f ./zookeeper-pv.yaml
 sleep 10
 echo "recycle zookeeper pods"
-kubectl delete pod/zookeeper-0
+kubectl delete -n confluent pod/zookeeper-0
 
 echo "creating brokers"
 kubectl apply -f ./crs/broker.yaml
 sleep 10
 echo "patching brokers"
-kubectl patch pvc/data0-kafka-0 -p '{"spec":{"volumeName":"data-broker0-volume"}}'
-kubectl patch pvc/data0-kafka-1 -p '{"spec":{"volumeName":"data-broker1-volume"}}'
-kubectl patch pvc/data0-kafka-2 -p '{"spec":{"volumeName":"data-broker2-volume"}}'
+kubectl patch -n confluent pvc/data0-kafka-0 -p '{"spec":{"volumeName":"data-broker0-volume"}}'
+kubectl patch -n confluent pvc/data0-kafka-1 -p '{"spec":{"volumeName":"data-broker1-volume"}}'
+kubectl patch -n confluent pvc/data0-kafka-2 -p '{"spec":{"volumeName":"data-broker2-volume"}}'
 sleep 2
 
 cat << EOF > ./broker-pv.yaml
@@ -364,4 +364,4 @@ echo "creating broker pv"
 kubectl apply -f ./broker-pv.yaml
 sleep 10
 echo "recycling brokers"
-kubectl delete pod/kafka-0 pod/kafka-1 pod/kafka-2
+kubectl delete -n confluent pod/kafka-0 pod/kafka-1 pod/kafka-2
