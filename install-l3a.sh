@@ -213,13 +213,14 @@ sleep 10
 
 echo "creating zookeepers"
 kubectl apply -f ./crs/zookeeper.yaml
-sleep 5
+sleep 10
+
 echo "patching zookeepers"
 kubectl patch pvc/data-zookeeper-0 -p '{"spec":{"volumeName":"data-zookeeper-volume"}}'
 kubectl patch pvc/txnlog-zookeeper-0 -p '{"spec":{"volumeName":"logs-zookeeper-volume"}}'
 sleep 2
 
-cat << EOF > ./zookeeer-pv.yaml
+cat << EOF > ./zookeeper-pv.yaml
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -277,7 +278,7 @@ kubectl delete pod/zookeeper-0
 
 echo "creating brokers"
 kubectl apply -f ./crs/broker.yaml
-sleep 5
+sleep 10
 echo "patching brokers"
 kubectl patch pvc/data0-kafka-0 -p '{"spec":{"volumeName":"data-broker0-volume"}}'
 kubectl patch pvc/data0-kafka-1 -p '{"spec":{"volumeName":"data-broker1-volume"}}'
@@ -291,7 +292,7 @@ metadata:
   name: data-broker0-volume
 spec:
   capacity:
-    storage: 10Gi
+    storage: 100Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
@@ -316,7 +317,7 @@ metadata:
   name: data-broker1-volume
 spec:
   capacity:
-    storage: 10Gi
+    storage: 100Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
@@ -341,7 +342,7 @@ metadata:
   name: data-broker2-volume
 spec:
   capacity:
-    storage: 10Gi
+    storage: 100Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
