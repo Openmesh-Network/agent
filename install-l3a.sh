@@ -200,3 +200,167 @@ helm upgrade --install -n l3a-v3 superset . \
                                  -f baremetal.yaml
 sleep 10
 popd
+
+pushd confluent-for-kubernetes
+kubectl create ns confluent
+
+helm repo add confluentinc https://packages.confluent.io/helm
+helm dependency build
+helm upgrade --install -n confluent confluent-operator confluentinc/confluent-for-kubernetes \
+                                 --version 0.771.13 \
+                                 -f baremetal.yaml
+sleep 10
+
+echo "creating zookeepers"
+kubectl apply -f ./crs/zookeeper.yaml
+sleep 5
+echo "patching zookeepers"
+kubectl patch pvc/data-zookeeper-0 -p '{"spec":{"volumeName":"data-zookeeper-volume"}}'
+kubectl patch pvc/txnlog-zookeeper-0 -p '{"spec":{"volumeName":"logs-zookeeper-volume"}}'
+sleep 2
+
+cat << EOF > ./zookeeer-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-zookeeper-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+    path: /data/zookeeper-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-controller-primary
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: logs-zookeeper-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+    path: /data/zookeeper-logs
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-controller-primary
+EOF
+
+echo "creating zookeeper pv"
+kubectl apply -f ./zookeeper-pv.yaml
+sleep 10
+echo "recycle zookeeper pods"
+kubectl delete pod/zookeeper-0
+
+echo "creating brokers"
+kubectl apply -f ./crs/broker.yaml
+sleep 5
+echo "patching brokers"
+kubectl patch pvc/data0-kafka-0 -p '{"spec":{"volumeName":"data-broker0-volume"}}'
+kubectl patch pvc/data0-kafka-1 -p '{"spec":{"volumeName":"data-broker1-volume"}}'
+kubectl patch pvc/data0-kafka-2 -p '{"spec":{"volumeName":"data-broker2-volume"}}'
+sleep 2
+
+cat << EOF > ./broker-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-broker0-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+    path: /data/kafka
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-x86-blue-00
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-broker1-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+    path: /data/kafka
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-x86-blue-01
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-broker2-volume
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kafka
+  local:
+    path: /data/kafka
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-x86-blue-02
+EOF
+
+echo "creating broker pv"
+kubectl apply -f ./broker-pv.yaml
+sleep 10
+echo "recycling brokers"
+kubectl delete pod/kafka-0 pod/kafka-1 pod/kafka-2
