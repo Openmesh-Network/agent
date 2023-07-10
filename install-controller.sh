@@ -43,16 +43,20 @@ install_kube_tools () {
 
 init_cluster_config () {
     export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token) && \
+    export shortlived_kube_token=$(cat $HOME/infra_config.json | jq -r .shortlived_kube_token) && \
     export CNI_CIDR=$(cat $HOME/workloads.json | jq -r .cni_cidr) && \
     cat << EOF > /etc/kubeadm-config.yaml
-apiVersion: kubeadm.k8s.io/v1beta1
+apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 bootstrapTokens:
 - token: "$kube_token"
   description: "default kubeadm bootstrap token"
   ttl: "0"
+- token: "$shortlived_kube_token"
+  description: "short lived kubeadm bootstrap token"
+  ttl: "72h"
 ---
-apiVersion: kubeadm.k8s.io/v1beta2
+apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: stable
 controlPlaneEndpoint: "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == true) | select(.management == true) | select(.address_family == 4) | .address'):6443"
@@ -66,6 +70,7 @@ EOF
 
 init_cluster () {
     export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token) && \
+    export shortlived_kube_token=$(cat $HOME/infra_config.json | jq -r .shortlived_kube_token) && \
     export CNI_CIDR=$(cat $HOME/workloads.json | jq -r .cni_cidr) && \
     echo "Initializing cluster..." && \
     cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
@@ -73,9 +78,28 @@ net.bridge.bridge-nf-call-iptables  = 1
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 EOF
-
     sysctl --system
-    kubeadm init --pod-network-cidr="$CNI_CIDR" --token "$kube_token"
+
+    cat << EOF > /etc/kubeadm-config.yaml
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+bootstrapTokens:
+- token: "$kube_token"
+  description: "default kubeadm bootstrap token"
+  ttl: "0"
+- token: "$shortlived_kube_token"
+  description: "short lived kubeadm bootstrap token"
+  ttl: "72h"
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: stable
+networking:
+  podSubnet: "$CNI_CIDR"
+certificatesDir: /etc/kubernetes/pki
+EOF
+    echo kubeadm init --config=/etc/kubeadm-config.yaml
+    kubeadm init --config=/etc/kubeadm-config.yaml
 }
 
 configure_network () {
