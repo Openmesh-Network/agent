@@ -34,10 +34,8 @@ EOF
 systemctl enable knockd && \
   systemctl restart knockd && \
   /sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT && \
-  /sbin/iptables -A INPUT -i lo -j ACCEPT && \
-  /sbin/iptables -A OUTPUT -o lo -j ACCEPT && \
-  /sbin/iptables -P INPUT DROP && \
-  /sbin/iptables -P FORWARD DROP && \
+  /sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP && \
+  /sbin/iptables -A INPUT -i bond0 -p tcp --dport 6443 -j DROP && \
   /sbin/iptables -P OUTPUT ACCEPT
 
 rm -rf $BUILD_DIR
