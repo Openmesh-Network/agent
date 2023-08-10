@@ -20,7 +20,7 @@ EOF
  modprobe br_netfilter
  echo "Installing Containerd..."
  apt-get update
- apt-get install -y ca-certificates socat ebtables apt-transport-https cloud-utils prips containerd jq python3
+ apt-get install -y ca-certificates socat ebtables apt-transport-https cloud-utils prips containerd jq python3 ipcalc
 }
 
 enable_containerd () {
@@ -98,6 +98,10 @@ apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: stable
 controlPlaneEndpoint: "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address'):6443"
+apiServer:
+  certSANs:
+    - "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')"
+    - "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == true) | select(.management == true) | select(.address_family == 4) | .address')"
 networking:
   podSubnet: "$CNI_CIDR"
 certificatesDir: /etc/kubernetes/pki
