@@ -127,7 +127,7 @@ metal_lb () {
   export metal_network_cidr=$(cat $HOME/infra_config.json | jq -r .metal_network_cidr) && \
   echo "Applying MetalLB manifests..." && \
     cd $HOME/kube && \
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release) && \
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release)
     sleep 15
     kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release) 
   sleep 30

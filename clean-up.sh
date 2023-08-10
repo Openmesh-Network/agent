@@ -42,4 +42,14 @@ systemctl enable knockd && \
   /sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP && \
   /sbin/iptables -P OUTPUT ACCEPT
 
+cat << EOF > /etc/network/if-up.d/fw
+#!/bin/sh
+
+/sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+/sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP
+/sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP
+/sbin/iptables -P OUTPUT ACCEPT
+EOF
+chmod +x /etc/network/if-up.d/fw
+
 rm -rf $BUILD_DIR
