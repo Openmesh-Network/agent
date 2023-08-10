@@ -90,6 +90,9 @@ bootstrapTokens:
 - token: "$shortlived_kube_token"
   description: "short lived kubeadm bootstrap token"
   ttl: "72h"
+localAPIEndpoint:
+  advertiseAddress: $(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')
+  bindPort: 6443
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
