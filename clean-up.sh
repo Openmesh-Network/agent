@@ -5,6 +5,8 @@ export BUILD_DIR=$HOME/l3a
 
 apt-get install -y knockd
 
+PUBLIC_IP=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == true) | select(.management == true) | select(.address_family == 4) | .address')
+PRIVATE_IP=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')
 NETWORK=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.network')
 CIDR=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.cidr')
 
@@ -35,21 +37,25 @@ cat << EOF > /etc/knockd.conf
   tcpflags    = syn
 EOF
 
-systemctl enable knockd && \
-  systemctl restart knockd && \
-  /sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT && \
-  /sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP && \
-  /sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP && \
-  /sbin/iptables -P OUTPUT ACCEPT
-
-cat << EOF > /etc/network/if-up.d/fw
-#!/bin/sh
-
-/sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-/sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP
-/sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP
-/sbin/iptables -P OUTPUT ACCEPT
-EOF
-chmod +x /etc/network/if-up.d/fw
+#systemctl enable knockd && \
+#  systemctl restart knockd && \
+#  /sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT && \
+#  /sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP && \
+#  /sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP && \
+#  /sbin/iptables -A INPUT -i bond0 ! -s $PUBLIC_IP/32 -p tcp --dport 2379 -j DROP && \
+#  /sbin/iptables -A INPUT -i bond0 ! -s $PUBLIC_IP/32 -p tcp --dport 2380 -j DROP && \
+#  /sbin/iptables -P OUTPUT ACCEPT
+#
+#cat << EOF > /etc/network/if-up.d/fw
+##!/bin/sh
+#
+#/sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#/sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP
+#/sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP
+#/sbin/iptables -A INPUT -i bond0 ! -s $PUBLIC_IP/32 -p tcp --dport 2379 -j DROP
+#/sbin/iptables -A INPUT -i bond0 ! -s $PUBLIC_IP/32 -p tcp --dport 2380 -j DROP
+#/sbin/iptables -P OUTPUT ACCEPT
+#EOF
+#chmod +x /etc/network/if-up.d/fw
 
 rm -rf $BUILD_DIR
