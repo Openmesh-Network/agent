@@ -4,6 +4,10 @@ export HOME=/root
 export BUILD_DIR=$HOME/l3a
 
 apt-get install -y knockd
+
+NETWORK=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.network')
+CIDR=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.cidr')
+
 cat << EOF > /etc/knockd.conf
 [options]
   UseSyslog
@@ -35,6 +39,7 @@ systemctl enable knockd && \
   systemctl restart knockd && \
   /sbin/iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT && \
   /sbin/iptables -A INPUT -i bond0 -p tcp --dport 22 -j DROP && \
+  /sbin/iptables -A INPUT -i bond0 ! -s $NETWORK/$CIDR -p tcp --dport 6443 -j DROP && \
   /sbin/iptables -P OUTPUT ACCEPT
 
 rm -rf $BUILD_DIR
