@@ -94,6 +94,7 @@ bootstrapTokens:
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: stable
+controlPlaneEndpoint: "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address'):6443"
 networking:
   podSubnet: "$CNI_CIDR"
 certificatesDir: /etc/kubernetes/pki
