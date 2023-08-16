@@ -8,7 +8,7 @@ load_infra_config () {
 }
 
 function install_containerd() {
-cat <<EOF > /etc/modules-load.d/containerd.conf
+ cat <<EOF > /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
 EOF
@@ -26,16 +26,16 @@ function enable_containerd() {
 }
 
 function ceph_pre_check {
-  apt install -y lvm2 ; \
-  modprobe rbd
+ apt install -y lvm2 ; \
+ modprobe rbd
 }
 
 function bgp_routes {
-    GATEWAY_IP=$(curl https://metadata.platformequinix.com/metadata | jq -r ".network.addresses[] | select(.public == false) | .gateway")
-    # TODO use metadata peer ips
-    ip route add 169.254.255.1 via $GATEWAY_IP
-    ip route add 169.254.255.2 via $GATEWAY_IP
-    sed -i.bak -E "/^\s+post-down route del -net 10\.0\.0\.0.* gw .*$/a \ \ \ \ up ip route add 169.254.255.1 via $GATEWAY_IP || true\n    up ip route add 169.254.255.2 via $GATEWAY_IP || true\n    down ip route del 169.254.255.1 || true\n    down ip route del 169.254.255.2 || true" /etc/network/interfaces
+ GATEWAY_IP=$(curl https://metadata.platformequinix.com/metadata | jq -r ".network.addresses[] | select(.public == false) | .gateway")
+ # TODO use metadata peer ips
+ ip route add 169.254.255.1 via $GATEWAY_IP
+ ip route add 169.254.255.2 via $GATEWAY_IP
+ sed -i.bak -E "/^\s+post-down route del -net 10\.0\.0\.0.* gw .*$/a \ \ \ \ up ip route add 169.254.255.1 via $GATEWAY_IP || true\n    up ip route add 169.254.255.2 via $GATEWAY_IP || true\n    down ip route del 169.254.255.1 || true\n    down ip route del 169.254.255.2 || true" /etc/network/interfaces
 }
 
 function install_kube_tools() {
@@ -60,8 +60,21 @@ net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 EOF
 
-  sysctl --system
-  kubeadm join $(ipcalc $(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.network')/$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.cidr') | sed -n -e '/^HostMin/p' | awk '{print $2}'):6443 --token "${kube_token}" --discovery-token-unsafe-skip-ca-verification
+ sysctl --system
+
+ cat << EOF > /etc/kubeadm-join.yaml
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: JoinConfiguration
+nodeRegistration:
+  kubeletExtraArgs:
+    node-ip: $(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')
+discovery:
+  bootstrapToken:
+    apiServerEndpoint: $(ipcalc $(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.network')/$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .parent_block.cidr') | sed -n -e '/^HostMin/p' | awk '{print $2}'):6443
+    token: ${kube_token}
+    unsafeSkipCAVerification: true
+EOF
+  kubeadm join --config=/etc/kubeadm-join.yaml
 }
 
 install_containerd && \
