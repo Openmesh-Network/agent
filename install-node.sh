@@ -3,6 +3,10 @@
 export HOME=/root
 mkdir $HOME/kube
 
+load_infra_config () {
+  INFRA_CONFIG=$(cat "$HOME/infra_config.json")
+}
+
 function install_containerd() {
 cat <<EOF > /etc/modules-load.d/containerd.conf
 overlay
@@ -35,7 +39,10 @@ function bgp_routes {
 }
 
 function install_kube_tools() {
- swapoff -a  && \
+ export kube_version=$(cat $HOME/infra_config.json | jq -r .kube_version) && \
+ echo "Installing Kubeadm tools..." ;
+ sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab
+ swapoff -a
  apt-get update && apt-get install -y apt-transport-https
  curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
  echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
@@ -45,8 +52,9 @@ function install_kube_tools() {
 }
 
 function join_cluster() {
-	echo "Attempting to join cluster"
-  cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
+ export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token)
+ echo "Attempting to join cluster"
+ cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
 net.bridge.bridge-nf-call-iptables  = 1
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
