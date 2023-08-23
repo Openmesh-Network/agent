@@ -3,14 +3,33 @@
 export HOME=/root
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
-SUBNET_INFO=$(curl https://networkcalc.com/api/ip/$(jq -r .metal_network_cidr infra_config.json))
-assignable_hosts=$(jq -r .address.assignable_hosts <<< $SUBNET_INFO)
-first_assignable_host=$(jq -r .address.first_assignable_host <<< $SUBNET_INFO)
-last_assignable_host=$(jq -r .address.last_assignable_host <<< $SUBNET_INFO)
+subnet_info=$(curl https://networkcalc.com/api/ip/$(jq -r .metal_network_cidr infra_config.json))
+assignable_hosts=$(jq -r .address.assignable_hosts <<< $subnet_info)
+first_assignable_host=$(jq -r .address.first_assignable_host <<< $subnet_info)
+last_assignable_host=$(jq -r .address.last_assignable_host <<< $subnet_info)
 echo $first_assignable_host
 echo $last_assignable_host
 
 kubectl label node $uniq_id-controller-primary plane=data
+
+cat << EOF > ns.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    kubernetes.io/metadata.name: l3a-v3
+  name: l3a-v3
+
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    kubernetes.io/metadata.name: observability
+  name: observability
+EOF
+kubectl apply -f ./ns.yaml
 
 cat << EOF > ./sc.yaml
 apiVersion: storage.k8s.io/v1
@@ -61,18 +80,35 @@ spec:
     name: data-postgres-postgresql-0
     namespace: l3a-v3
 
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prometheus-volume
+spec:
+  capacity:
+    storage: 50Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: default-storage
+  local:
+    path: /data/prometheus
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - $uniq_id-controller-primary
+  claimRef:
+    name: prometheus-server
+    namespace: observability
 EOF
 kubectl apply -f ./pv.yaml
-
-cat << EOF > ns.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    kubernetes.io/metadata.name: l3a-v3
-  name: l3a-v3
-EOF
-kubectl apply -f ./ns.yaml
 
 cat << EOF > secret.yaml
 apiVersion: v1
@@ -146,6 +182,50 @@ spec:
     - http01:
         ingress:
           class:  nginx
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-staging
+  namespace: observability
+spec:
+  acme:
+    # The ACME server URL
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    # Email address used for ACME registration
+    email: andrew.ong@l3a.xyz
+    # Name of a secret used to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    # Enable the HTTP-01 challenge provider
+    solvers:
+    - http01:
+        ingress:
+          class:  nginx
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-prod
+  namespace: observability
+spec:
+  acme:
+    # The ACME server URL
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Email address used for ACME registration
+    email: andrew.ong@l3a.xyz
+    # Name of a secret used to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    # Enable the HTTP-01 challenge provider
+    solvers:
+    - http01:
+        ingress:
+          class:  nginx
 EOF
 kubectl apply -f ./issuer.yaml
 
@@ -198,6 +278,34 @@ helm upgrade --install -n l3a-v3 superset . \
                                  --set "ingress.tls[0].hosts[0]=query.$uniq_id.tech.l3atom.com" \
                                  --set "supersetNode.connections.db_pass=$POSTGRES_PASSWORD" \
                                  -f baremetal.yaml
+sleep 10
+popd
+
+pushd prometheus
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm dependency build
+helm upgrade --install -n observability prometheus prometheus-community/prometheus \
+                                 --version 15.17.0 \
+                                 -f baremetal.yaml
+
+sleep 10
+popd
+
+pushd grafana
+helm upgrade --install -n observability grafana . \
+                                 --set 'dashboards.default.l3a-v3.file=""' \
+                                 -f baremetal.yaml
+
+sleep 10
+admin_user_grafana=$(kubectl get secret -n observability grafana -o jsonpath="{.data.admin-user}" | base64 -d)
+admin_password_grafana=$(kubectl get secret -n observability grafana -o jsonpath="{.data.admin-password}" | base64 --d)
+prometheus_dashboard_uid_grafana=$(curl https://$admin_user_grafana:$admin_password_grafana@stats.$uniq_id.tech.l3atom.com/api/datasources/name/Prometheus | jq -r .uid)
+sed "s/relace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/l3a-v3-dashboard.template.json > ./dashboards/l3a-v3-dashboard.json
+
+helm upgrade --install -n observability grafana . \
+                                 --set 'dashboards.default.l3a-v3.file=dashboards/l3a-v3-dashboard.json' \
+                                 -f baremetal.yaml
+
 sleep 10
 popd
 
