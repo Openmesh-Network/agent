@@ -48,6 +48,8 @@ cat << EOF > /etc/network/if-up.d/fw
 /sbin/iptables -A INPUT -s $NETWORK/$CIDR -p tcp --dport 10250 -j ACCEPT
 /sbin/iptables -A INPUT -s $NETWORK/$CIDR -p tcp --dport 10256 -j ACCEPT
 /sbin/iptables -A INPUT -s $NETWORK/$CIDR -p tcp --dport 6443 -j ACCEPT
+/sbin/iptables -A INPUT -s $NETWORK/$CIDR -p tcp --dport 9100 -j ACCEPT
+/sbin/iptables -A INPUT -s $NETWORK/$CIDR -p tcp --dport 7472 -j ACCEPT
 /sbin/iptables -P INPUT DROP
 EOF
 chmod +x /etc/network/if-up.d/fw
