@@ -251,7 +251,7 @@ sleep 10
 popd
 
 pushd postgresql
-echo "postgres time with $last_assignable_host"
+echo "l3a-v3 postgres time with $last_assignable_host"
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm dependency build
 helm upgrade --install -n l3a-v3 postgres bitnami/postgresql \
@@ -321,11 +321,11 @@ helm upgrade --install -n confluent confluent-operator confluentinc/confluent-fo
                                  -f baremetal.yaml
 sleep 10
 
-echo "creating zookeepers"
+echo "creating confluent zookeepers"
 kubectl apply -f ./crs/zookeeper.yaml
 sleep 10
 
-echo "patching zookeepers"
+echo "patching confluent zookeepers"
 kubectl patch -n confluent pvc/data-zookeeper-0 -p '{"spec":{"volumeName":"data-zookeeper-volume"}}'
 kubectl patch -n confluent pvc/txnlog-zookeeper-0 -p '{"spec":{"volumeName":"logs-zookeeper-volume"}}'
 sleep 2
@@ -380,16 +380,16 @@ spec:
           - $uniq_id-controller-primary
 EOF
 
-echo "creating zookeeper pv"
+echo "creating confluent zookeeper pv"
 kubectl apply -f ./zookeeper-pv.yaml
 sleep 10
-echo "recycle zookeeper pods"
+echo "recycle confluent zookeeper pods"
 kubectl delete -n confluent pod/zookeeper-0
 
-echo "creating brokers"
+echo "creating confluent brokers"
 kubectl apply -f ./crs/broker.yaml
 sleep 10
-echo "patching brokers"
+echo "patching confluent brokers"
 kubectl patch -n confluent pvc/data0-kafka-0 -p '{"spec":{"volumeName":"data-broker0-volume"}}'
 kubectl patch -n confluent pvc/data0-kafka-1 -p '{"spec":{"volumeName":"data-broker1-volume"}}'
 kubectl patch -n confluent pvc/data0-kafka-2 -p '{"spec":{"volumeName":"data-broker2-volume"}}'
@@ -470,8 +470,12 @@ spec:
           - $uniq_id-x86-blue-02
 EOF
 
-echo "creating broker pv"
+echo "creating confluent broker pv"
 kubectl apply -f ./broker-pv.yaml
 sleep 10
-echo "recycling brokers"
+echo "recycling confluent brokers"
 kubectl delete -n confluent pod/kafka-0 pod/kafka-1 pod/kafka-2
+sleep 10
+echo "enabling confluent crs"
+kubectl apply -n confluent -f crs/connect.yaml || kubectl apply -f crs/connect.yaml
+kubectl apply -n confluent -f crs/schemaregistry.yaml || kubectl apply -f crs/schemaregistry.yaml
