@@ -330,6 +330,7 @@ if [ "$ccm_enabled" = "true" ]; then
   sleep 30 # The CCM will probably take a while to reconcile
   if [ "$loadbalancer_type" = "metallb" ]; then
     metal_lb
+    metal_lb # running this twice just in case
   fi
   if [ "$loadbalancer_type" = "kube-vip" ]; then
     kube_vip
