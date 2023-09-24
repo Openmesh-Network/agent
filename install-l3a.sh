@@ -300,9 +300,11 @@ admin_password_grafana=$(kubectl get secret -n observability grafana -o jsonpath
 prometheus_dashboard_uid_grafana=$(curl https://$admin_user_grafana:$admin_password_grafana@stats.$uniq_id.tech.l3atom.com/api/datasources/name/Prometheus | jq -r .uid)
 
 sed "s/replace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/l3a-v3-dashboard.template.json > ./dashboards/l3a-v3-dashboard.json
+sed "s/replace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/kafka-dashboard.template.json > ./dashboards/kafka-dashboard.json
 
 helm upgrade --install -n observability grafana . \
                                  --set 'dashboards.default.l3a-v3.file=dashboards/l3a-v3-dashboard.json' \
+                                 --set 'dashboards.default.kafka.file=dashboards/kafka-dashboard.json' \
                                  --set "ingress.hosts[0]=stats.$uniq_id.tech.l3atom.com" \
                                  --set "ingress.tls[0].secretName=stats-$uniq_id-tech-l3a-com-tls-static" \
                                  --set "ingress.tls[0].hosts[0]=stats.$uniq_id.tech.l3atom.com" \
@@ -477,5 +479,6 @@ echo "recycling confluent brokers"
 kubectl delete -n confluent pod/kafka-0 pod/kafka-1 pod/kafka-2
 sleep 10
 echo "enabling confluent crs"
+kubectl apply -n confluent -f crs/kafka.yaml || kubectl apply -f crs/kafka.yaml
 kubectl apply -n confluent -f crs/connect.yaml || kubectl apply -f crs/connect.yaml
 kubectl apply -n confluent -f crs/schemaregistry.yaml || kubectl apply -f crs/schemaregistry.yaml
