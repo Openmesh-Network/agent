@@ -299,7 +299,7 @@ admin_user_grafana=$(kubectl get secret -n observability grafana -o jsonpath="{.
 admin_password_grafana=$(kubectl get secret -n observability grafana -o jsonpath="{.data.admin-password}" | base64 -d)
 prometheus_dashboard_uid_grafana=$(curl https://$admin_user_grafana:$admin_password_grafana@stats.$uniq_id.tech.l3atom.com/api/datasources/name/Prometheus | jq -r .uid)
 
-sed "s/relace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/l3a-v3-dashboard.template.json > ./dashboards/l3a-v3-dashboard.json
+sed "s/replace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/l3a-v3-dashboard.template.json > ./dashboards/l3a-v3-dashboard.json
 
 helm upgrade --install -n observability grafana . \
                                  --set 'dashboards.default.l3a-v3.file=dashboards/l3a-v3-dashboard.json' \
