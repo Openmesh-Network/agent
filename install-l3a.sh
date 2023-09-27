@@ -266,13 +266,18 @@ popd
 pushd superset
 export POSTGRES_PASSWORD=$(kubectl get secret --namespace l3a-v3 postgres-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d)
 export SUPERSET_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 16 | head -n 1)
+export SQLALCHEMY_URI="postgresql+psycopg2://postgres:$POSTGRES_PASSWORD@postgres-postgresql:5432/postgres"
+
+sed "s,replace-with-real-sqlalchemy-uri,$SQLALCHEMY_URI," ./extraConfigs.template.yaml > ./extraConfigs.yaml
+
 helm upgrade --install -n l3a-v3 superset . \
                                  --set "init.adminUser.password=$SUPERSET_PASSWORD" \
                                  --set "ingress.hosts[0]=query.$uniq_id.tech.l3atom.com" \
                                  --set "ingress.tls[0].secretName=query-$uniq_id-tech-l3a-xyz-tls-static" \
                                  --set "ingress.tls[0].hosts[0]=query.$uniq_id.tech.l3atom.com" \
                                  --set "supersetNode.connections.db_pass=$POSTGRES_PASSWORD" \
-                                 -f baremetal.yaml
+                                 -f baremetal.yaml \
+                                 -f extraConfigs.yaml
 sleep 10
 popd
 
