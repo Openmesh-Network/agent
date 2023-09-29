@@ -255,8 +255,7 @@ echo "l3a-v3 postgres time with $last_assignable_host"
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm dependency build
 helm upgrade --install -n l3a-v3 postgres bitnami/postgresql \
-                                 --version v12.2.4 \
-                                 --set auth.database=superset \
+                                 --version v12.5.9 \
                                  --set primary.service.loadBalancerIP=$last_assignable_host \
                                  -f baremetal.yaml
 
