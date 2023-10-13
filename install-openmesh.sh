@@ -2,23 +2,28 @@
 
 export HOME=/root
 export KUBECONFIG=/etc/kubernetes/admin.conf
+export PRODUCT_NAME=openmesh
+export DOMAIN="tech.$PRODUCT_NAME.network"
+export DOMAIN_WITH_DASHES="tech-$PRODUCT_NAME-network"
 
-subnet_info=$(curl https://networkcalc.com/api/ip/$(jq -r .metal_network_cidr infra_config.json))
-assignable_hosts=$(jq -r .address.assignable_hosts <<< $subnet_info)
-first_assignable_host=$(jq -r .address.first_assignable_host <<< $subnet_info)
-last_assignable_host=$(jq -r .address.last_assignable_host <<< $subnet_info)
-echo $first_assignable_host
-echo $last_assignable_host
+echo "uniq_id is injected in as $uniq_id"
 
+export metal_network_cidr=$(jq -r .metal_network_cidr infra_config.json)
+export first_assignable_host=$(python -c 'import ipaddress,os; print(ipaddress.IPv4Network(os.environ["metal_network_cidr"], strict=False).network_address + 1)')
+export last_assignable_host=$(python -c 'import ipaddress,os; print(ipaddress.IPv4Network(os.environ["metal_network_cidr"], strict=False).broadcast_address - 1)')
+echo "usable addresses are $first_assignable_host - $last_assignable_host"
+
+echo "labelling the data plane"
 kubectl label node $uniq_id-controller-primary plane=data
 
+echo "creating namespaces"
 cat << EOF > ns.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
   labels:
-    kubernetes.io/metadata.name: l3a-v3
-  name: l3a-v3
+    kubernetes.io/metadata.name: $PRODUCT_NAME
+  name: $PRODUCT_NAME
 
 ---
 
@@ -31,6 +36,7 @@ metadata:
 EOF
 kubectl apply -f ./ns.yaml
 
+echo "creating storage classes"
 cat << EOF > ./sc.yaml
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -53,6 +59,7 @@ volumeBindingMode: WaitForFirstConsumer
 EOF
 kubectl apply -f ./sc.yaml
 
+echo "creating persistent volumes"
 cat << EOF > ./pv.yaml
 apiVersion: v1
 kind: PersistentVolume
@@ -78,7 +85,7 @@ spec:
           - $uniq_id-controller-primary
   claimRef:
     name: data-postgres-postgresql-0
-    namespace: l3a-v3
+    namespace: $PRODUCT_NAME
 
 ---
 
@@ -110,14 +117,15 @@ spec:
 EOF
 kubectl apply -f ./pv.yaml
 
+echo "creating secrets"
 cat << EOF > secret.yaml
 apiVersion: v1
 data:
   .env: RVRIRVJFVU1fTk9ERV9IVFRQX1VSTD1odHRwczovL21haW5uZXQuaW5mdXJhLmlvL3YzLzc5YTEzNjRjN2ZhNjQ1NTE4ZTUzMmU0MjkwZDY0YWJlCkVUSEVSRVVNX05PREVfV1NfVVJMPXdzczovL21haW5uZXQuaW5mdXJhLmlvL3dzL3YzLzc5YTEzNjRjN2ZhNjQ1NTE4ZTUzMmU0MjkwZDY0YWJlCkVUSEVSRVVNX05PREVfU0VDUkVUPTVlNjYzYzUzOWE2MjRhZDVhOTYwY2Q4ZWE1MTZhZTcyCgpLQUZLQV9CT09UU1RSQVBfU0VSVkVSUz1rYWZrYS0wLWludGVybmFsLmNvbmZsdWVudDo5MDkyCgpTQ0hFTUFfUkVHSVNUUllfVVJMPWh0dHA6Ly9zY2hlbWFyZWdpc3RyeS0wLWludGVybmFsLmNvbmZsdWVudDo4MDgxCg==
 kind: Secret
 metadata:
-  name: l3a-secrets
-  namespace: l3a-v3
+  name: $PRODUCT_NAME-secrets
+  namespace: $PRODUCT_NAME
 type: Opaque
 EOF
 kubectl apply -f ./secret.yaml
@@ -140,13 +148,13 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: letsencrypt-staging
-  namespace: l3a-v3
+  namespace: $PRODUCT_NAME
 spec:
   acme:
     # The ACME server URL
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     # Email address used for ACME registration
-    email: andrew.ong@l3a.xyz
+    email: andrew.ong@openmesh.network
     # Name of a secret used to store the ACME account private key
     privateKeySecretRef:
       name: letsencrypt-staging
@@ -162,13 +170,13 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: letsencrypt-prod
-  namespace: l3a-v3
+  namespace: $PRODUCT_NAME
 spec:
   acme:
     # The ACME server URL
     server: https://acme-v02.api.letsencrypt.org/directory
     # Email address used for ACME registration
-    email: andrew.ong@l3a.xyz
+    email: andrew.ong@openmesh.network
     # Name of a secret used to store the ACME account private key
     privateKeySecretRef:
       name: letsencrypt-prod
@@ -190,7 +198,7 @@ spec:
     # The ACME server URL
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     # Email address used for ACME registration
-    email: andrew.ong@l3a.xyz
+    email: andrew.ong@openmesh.network
     # Name of a secret used to store the ACME account private key
     privateKeySecretRef:
       name: letsencrypt-staging
@@ -212,7 +220,7 @@ spec:
     # The ACME server URL
     server: https://acme-v02.api.letsencrypt.org/directory
     # Email address used for ACME registration
-    email: andrew.ong@l3a.xyz
+    email: andrew.ong@openmesh.network
     # Name of a secret used to store the ACME account private key
     privateKeySecretRef:
       name: letsencrypt-prod
@@ -228,14 +236,14 @@ cat << EOF > ./cert.yaml
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: query-$uniq_id-tech-l3a-xyz-tls-static
-  namespace: l3a-v3
+  name: query-$uniq_id-$DOMAIN_WITH_DASHES-tls-static
+  namespace: $PRODUCT_NAME
 spec:
-  secretName: query-$uniq_id-tech-l3a-xyz-tls-static
+  secretName: query-$uniq_id-$DOMAIN_WITH_DASHES-tls-static
   issuerRef:
     name: letsencrypt-prod
   dnsNames:
-  - 'query.$uniq_id.tech.l3atom.com'
+  - 'query.$uniq_id.$DOMAIN'
 EOF
 kubectl apply -f ./cert.yaml
 popd
@@ -251,10 +259,10 @@ sleep 10
 popd
 
 pushd postgresql
-echo "l3a-v3 postgres time with $last_assignable_host"
+echo "$PRODUCT_NAME postgres time with $last_assignable_host"
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm dependency build
-helm upgrade --install -n l3a-v3 postgres bitnami/postgresql \
+helm upgrade --install -n $PRODUCT_NAME postgres bitnami/postgresql \
                                  --version v12.5.9 \
                                  --set primary.service.loadBalancerIP=$last_assignable_host \
                                  -f baremetal.yaml
@@ -263,17 +271,17 @@ sleep 10
 popd
 
 pushd superset
-export POSTGRES_PASSWORD=$(kubectl get secret --namespace l3a-v3 postgres-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d)
+export POSTGRES_PASSWORD=$(kubectl get secret --namespace $PRODUCT_NAME postgres-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d)
 export SUPERSET_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 16 | head -n 1)
 export SQLALCHEMY_URI="postgresql+psycopg2://postgres:$POSTGRES_PASSWORD@postgres-postgresql:5432/postgres"
 
 sed "s,replace-with-real-sqlalchemy-uri,$SQLALCHEMY_URI," ./extraConfigs.template.yaml > ./extraConfigs.yaml
 
-helm upgrade --install -n l3a-v3 superset . \
+helm upgrade --install -n $PRODUCT_NAME superset . \
                                  --set "init.adminUser.password=$SUPERSET_PASSWORD" \
-                                 --set "ingress.hosts[0]=query.$uniq_id.tech.l3atom.com" \
-                                 --set "ingress.tls[0].secretName=query-$uniq_id-tech-l3a-xyz-tls-static" \
-                                 --set "ingress.tls[0].hosts[0]=query.$uniq_id.tech.l3atom.com" \
+                                 --set "ingress.hosts[0]=query.$uniq_id.$DOMAIN" \
+                                 --set "ingress.tls[0].secretName=query-$uniq_id-$DOMAIN_WITH_DASHES-tls-static" \
+                                 --set "ingress.tls[0].hosts[0]=query.$uniq_id.$DOMAIN" \
                                  --set "supersetNode.connections.db_pass=$POSTGRES_PASSWORD" \
                                  -f baremetal.yaml \
                                  -f extraConfigs.yaml
@@ -293,15 +301,15 @@ popd
 pushd grafana
 helm upgrade --install -n observability grafana . \
                                  --set 'dashboards.default.l3a-v3.file=""' \
-                                 --set "ingress.hosts[0]=stats.$uniq_id.tech.l3atom.com" \
-                                 --set "ingress.tls[0].secretName=stats-$uniq_id-tech-l3a-com-tls-static" \
-                                 --set "ingress.tls[0].hosts[0]=stats.$uniq_id.tech.l3atom.com" \
+                                 --set "ingress.hosts[0]=stats.$uniq_id.$DOMAIN" \
+                                 --set "ingress.tls[0].secretName=stats-$uniq_id-$DOMAIN_WITH_DASHES-tls-static" \
+                                 --set "ingress.tls[0].hosts[0]=stats.$uniq_id.$DOMAIN" \
                                  -f baremetal.yaml
 
 sleep 30
 admin_user_grafana=$(kubectl get secret -n observability grafana -o jsonpath="{.data.admin-user}" | base64 -d)
 admin_password_grafana=$(kubectl get secret -n observability grafana -o jsonpath="{.data.admin-password}" | base64 -d)
-prometheus_dashboard_uid_grafana=$(curl https://$admin_user_grafana:$admin_password_grafana@stats.$uniq_id.tech.l3atom.com/api/datasources/name/Prometheus | jq -r .uid)
+prometheus_dashboard_uid_grafana=$(curl https://$admin_user_grafana:$admin_password_grafana@stats.$uniq_id.$DOMAIN/api/datasources/name/Prometheus | jq -r .uid)
 
 sed "s/replace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/l3a-v3-dashboard.template.json > ./dashboards/l3a-v3-dashboard.json
 sed "s/replace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/kafka-dashboard.template.json > ./dashboards/kafka-dashboard.json
@@ -309,9 +317,9 @@ sed "s/replace-with-real-uid/$prometheus_dashboard_uid_grafana/" ./dashboards/ka
 helm upgrade --install -n observability grafana . \
                                  --set 'dashboards.default.l3a-v3.file=dashboards/l3a-v3-dashboard.json' \
                                  --set 'dashboards.default.kafka.file=dashboards/kafka-dashboard.json' \
-                                 --set "ingress.hosts[0]=stats.$uniq_id.tech.l3atom.com" \
-                                 --set "ingress.tls[0].secretName=stats-$uniq_id-tech-l3a-com-tls-static" \
-                                 --set "ingress.tls[0].hosts[0]=stats.$uniq_id.tech.l3atom.com" \
+                                 --set "ingress.hosts[0]=stats.$uniq_id.$DOMAIN" \
+                                 --set "ingress.tls[0].secretName=stats-$uniq_id-$DOMAIN_WITH_DASHES-tls-static" \
+                                 --set "ingress.tls[0].hosts[0]=stats.$uniq_id.$DOMAIN" \
                                  -f baremetal.yaml
 
 sleep 10

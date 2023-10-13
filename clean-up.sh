@@ -1,7 +1,8 @@
 #!/bin/bash
 
 export HOME=/root
-export BUILD_DIR=$HOME/l3a
+export PRODUCT_NAME=openmesh
+export BUILD_DIR=$HOME/$PRODUCT_NAME-install
 
 apt-get install -y knockd
 

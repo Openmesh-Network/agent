@@ -1,14 +1,14 @@
 #!/bin/bash
 
 export HOME=/root
-mkdir $HOME/kube
+export PRODUCT_NAME=openmesh
+export BUILD_DIR=$HOME/$PRODUCT_NAME-install
 
-load_infra_config () {
-  INFRA_CONFIG=$(cat "$HOME/infra_config.json")
-}
+mkdir -p $HOME/kube
 
-load_workloads () {
-  WORKLOADS=$(cat $HOME/workloads.json)
+load_config () {
+  readonly INFRA_CONFIG=$(cat "$HOME/infra_config.json")
+  readonly WORKLOADS=$(cat "$HOME/workloads.json")
 }
 
 install_containerd () {
@@ -298,18 +298,17 @@ kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://github.com/equi
 
 install_containerd && \
 enable_containerd && \
-load_infra_config && \
-load_workloads && \
+load_config && \
 install_kube_tools && \
 sleep 30 && \
 
-export ccm_enabled=$(cat $HOME/infra_config.json | jq -r .ccm_enabled)
-export control_plane_node_count=$(cat $HOME/infra_config.json | jq -r .control_plane_node_count)
-export loadbalancer_type=$(cat $HOME/infra_config.json | jq -r .loadbalancer_type)
-export count_gpu=$(cat $HOME/infra_config.json | jq -r .count_gpu)
-export storage=$(cat $HOME/infra_config.json | jq -r .storage)
-export configure_ingress=$(cat $HOME/infra_config.json | jq -r .configure_ingress)
-export secrets_encryption=$(cat $HOME/infra_config.json | jq -r .secrets_encryption)
+export ccm_enabled=$(jq -r .ccm_enabled <<< $INFRA_CONFIG)
+export control_plane_node_count=$(jq -r .control_plane_node_count <<< $INFRA_CONFIG)
+export loadbalancer_type=$(jq -r .loadbalancer_type <<< $INFRA_CONFIG)
+export count_gpu=$(jq -r .count_gpu <<< $INFRA_CONFIG)
+export storage=$(jq -r .storage <<< $INFRA_CONFIG)
+export configure_ingress=$(jq -r .configure_ingress <<< $INFRA_CONFIG)
+export secrets_encryption=$(jq -r .secrets_encryption <<< $INFRA_CONFIG)
 
 if [ "$ccm_enabled" = "true" ]; then
   echo KUBELET_EXTRA_ARGS=\"--cloud-provider=external\" > /etc/default/kubelet

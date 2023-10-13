@@ -1,7 +1,10 @@
 #!/bin/bash
 
 export HOME=/root
-mkdir $HOME/kube
+export PRODUCT_NAME=openmesh
+export BUILD_DIR=$HOME/$PRODUCT_NAME-install
+
+mkdir -p $HOME/kube
 
 load_infra_config () {
   INFRA_CONFIG=$(cat "$HOME/infra_config.json")
