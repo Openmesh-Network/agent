@@ -1,51 +1,147 @@
 #!/bin/bash
 
-export HOME=/root
-export PRODUCT_NAME=openmesh
-export BUILD_DIR=$HOME/$PRODUCT_NAME-install
+bootstrap () {
+  export HOME=/root
+  export PRODUCT_NAME=openmesh
+  export BUILD_DIR=$HOME/$PRODUCT_NAME-install
+  export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
-mkdir -p $HOME/kube
+  mkdir -p $HOME/kube
+  mkdir -p \
+    /data/kafka \
+    /data/postgres \
+    /data/prometheus \
+    /data/superset \
+    /data/zookeeper-data \
+    /data/zookeeper-logs
+}
+
+install_utils () {
+  apt-get update && apt-get install -y inotify-tools jq python3 wcstools
+  add-apt-repository ppa:rmescandon/yq -y && apt-get update
+  apt-get install -y yq
+
+  if [[ ! $(command -v kubectl-krew) ]]; then install_kubectl_krew; fi
+  if [[ ! $(command -v kubectl-slice) ]]; then install_kubectl_slice; fi
+}
+
+install_kubectl_krew () {
+  set -x; local tmpdir="$(mktemp -d)" && pushd "$tmpdir" &&
+  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+  KREW="krew-${OS}_${ARCH}" &&
+  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+  tar zxvf "${KREW}.tar.gz" &&
+  ./"${KREW}" install krew
+
+  if [[ $(command -v kubectl-krew) ]]; then popd; rm -rf $tmpdir; fi
+}
+
+install_kubectl_slice () {
+  kubectl-krew install slice
+}
+
+install_manifest () {
+  apt-get update && apt-get install -y jq wcstools yq
+  local url=$1
+  local fp
+  pushd "$(mktemp -d)" && \
+    mkdir original && \
+    mkdir final
+  curl -L $url > allinone.yaml
+  kubectl-slice -f allinone.yaml -o original
+  kubectl-slice -f allinone.yaml -o final
+  for fp in $(find original -name deployment-*.yaml); do
+    local file=$(filename $fp)
+    rm -rf final/$file
+
+    local tempfile=$(mktemp)
+    yq r -j $fp > $tempfile
+    jq '.spec.template.spec.tolerations += [{"key":"node-role.kubernetes.io/control-plane", "operator":"Equal", "effect":"NoSchedule"}]' $tempfile > final/$file.json
+    rm -rf $tempfile
+  done
+  kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f final
+  popd
+}
 
 load_config () {
-  readonly INFRA_CONFIG=$(cat "$HOME/infra_config.json")
-  readonly WORKLOADS=$(cat "$HOME/workloads.json")
+  while [ ! -f "$HOME/infra_config.json" ]
+  do
+    inotifywait -qqt 2 -e create -e moved_to "$(dirname $HOME/infra_config.json)"
+    echo "infra_config.json file not found, cowardly looping"
+  done
+  while [ ! -f "$HOME/workloads.json" ]
+  do
+    inotifywait -qqt 2 -e create -e moved_to "$(dirname $HOME/workloads.json)"
+    echo "workloads.json file not found, cowardly looping"
+  done
+
+  readonly INFRA_CONFIG=$(< "$HOME/infra_config.json")
+  readonly WORKLOADS=$(< "$HOME/workloads.json")
+}
+
+extract_settings () {
+  export ccm_enabled=$(jq -r .ccm_enabled <<< $INFRA_CONFIG)
+  export cni_cidr=$(jq -r .cni_cidr <<< $WORKLOADS)
+  export configure_ingress=$(jq -r .configure_ingress <<< $INFRA_CONFIG)
+  export control_plane_node_count=$(jq -r .control_plane_node_count <<< $INFRA_CONFIG)
+  export count=$(jq -r .count <<< $INFRA_CONFIG)
+  export count_gpu=$(jq -r .count_gpu <<< $INFRA_CONFIG)
+  export gateway_ip=$(curl https://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | .gateway')
+
+  export kube_token=$(jq -r .kube_token <<< $INFRA_CONFIG)
+  export kube_version=$(jq -r .kube_version <<< $INFRA_CONFIG)
+  export loadbalancer_type=$(jq -r .loadbalancer_type <<< $INFRA_CONFIG)
+  export metallb_configmap=$(jq -r .metallb_configmap <<< $INFRA_CONFIG)
+  export metallb_namespace=$(jq -r .metallb_namespace <<< $INFRA_CONFIG)
+  export metallb_network_cidr=$(jq -r .metallb_network_cidr <<< $INFRA_CONFIG)
+  export metallb_release=$(jq -r .metallb_release <<< $WORKLOADS)
+  export private_management_ip=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')
+  export public_management_ip=$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == true) | select(.management == true) | select(.address_family == 4) | .address')
+
+  export secrets_encryption=$(jq -r .secrets_encryption <<< $INFRA_CONFIG)
+  export shortlived_kube_token=$(jq -r .shortlived_kube_token <<< $INFRA_CONFIG)
+  export storage=$(jq -r .storage <<< $INFRA_CONFIG)
+
+  export equinix_api_key=$(jq -r .equinix_api_key <<< $INFRA_CONFIG)
+  export equinix_project_id=$(jq -r .equinix_project_id <<< $INFRA_CONFIG)
+  export equinix_metro=$(jq -r .equinix_metro <<< $INFRA_CONFIG)
+  export equinix_facility=$(jq -r .equinix_facility <<< $INFRA_CONFIG)
+  export loadbalancer=$(jq -r .loadbalancer <<< $INFRA_CONFIG)
 }
 
 install_containerd () {
-cat <<EOF > /etc/modules-load.d/containerd.conf
+  cat <<EOF > /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
 EOF
- modprobe overlay
- modprobe br_netfilter
- echo "Installing Containerd..."
- apt-get update
- apt-get install -y ca-certificates socat ebtables apt-transport-https cloud-utils prips containerd jq python3 ipcalc
+
+  echo "Installing Containerd..."
+  modprobe overlay
+  modprobe br_netfilter
+  apt-get update && apt-get install -y ca-certificates socat ebtables apt-transport-https cloud-utils prips containerd jq python3
 }
 
 enable_containerd () {
- systemctl daemon-reload
- systemctl enable containerd
- systemctl start containerd
+  systemctl daemon-reload
+  systemctl enable containerd
+  systemctl start containerd
 }
 
 install_kube_tools () {
- export kube_version=$(cat $HOME/infra_config.json | jq -r .kube_version) && \
- echo "Installing Kubeadm tools..." ;
- sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab
- swapoff -a
- apt-get update && apt-get install -y apt-transport-https
- curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
- echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
- apt-get update
- apt-get install -y kubelet=$kube_version kubeadm=$kube_version kubectl=$kube_version
+  echo $kube_token
+  echo "Installing kubeadm tools for version $kube_version"
+  sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab
+  swapoff -a
+  apt-get update && apt-get install -y apt-transport-https
+  curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+  echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list && apt-get update
+  apt-get update && apt-get install -y kubelet=$kube_version kubeadm=$kube_version kubectl=$kube_version
 }
 
 init_cluster_config () {
-    export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token) && \
-    export shortlived_kube_token=$(cat $HOME/infra_config.json | jq -r .shortlived_kube_token) && \
-    export CNI_CIDR=$(cat $HOME/workloads.json | jq -r .cni_cidr) && \
-    cat << EOF > /etc/kubeadm-config.yaml
+  echo $cni_cidr
+  cat << EOF > /etc/kubeadm-config.yaml
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 bootstrapTokens:
@@ -59,28 +155,29 @@ bootstrapTokens:
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: stable
-controlPlaneEndpoint: "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address'):6443"
+controlPlaneEndpoint: "$private_management_ip:6443"
 networking:
-  podSubnet: "$CNI_CIDR"
+  podSubnet: "$cni_cidr"
 certificatesDir: /etc/kubernetes/pki
 EOF
-    kubeadm init --config=/etc/kubeadm-config.yaml ; \
-    kubeadm init phase upload-certs --upload-certs
+
+  kubeadm init --config=/etc/kubeadm-config.yaml
+  kubeadm init phase upload-certs --upload-certs
 }
 
 init_cluster () {
-    export kube_token=$(cat $HOME/infra_config.json | jq -r .kube_token) && \
-    export shortlived_kube_token=$(cat $HOME/infra_config.json | jq -r .shortlived_kube_token) && \
-    export CNI_CIDR=$(cat $HOME/workloads.json | jq -r .cni_cidr) && \
-    echo "Initializing cluster..." && \
-    cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
+  echo $kube_token
+  echo $shortlived_kube_token
+  echo $cni_cidr
+  echo "Initializing cluster..."
+  cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
 net.bridge.bridge-nf-call-iptables  = 1
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 EOF
-    sysctl --system
 
-    cat << EOF > /etc/kubeadm-config.yaml
+  sysctl --system
+  cat << EOF > /etc/kubeadm-config.yaml
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 bootstrapTokens:
@@ -91,23 +188,24 @@ bootstrapTokens:
   description: "short lived kubeadm bootstrap token"
   ttl: "72h"
 localAPIEndpoint:
-  advertiseAddress: $(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')
+  advertiseAddress: $private_management_ip
   bindPort: 6443
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: stable
-controlPlaneEndpoint: "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address'):6443"
+controlPlaneEndpoint: "$private_management_ip:6443"
 apiServer:
   certSANs:
-    - "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == false) | select(.management == true) | select(.address_family == 4) | .address')"
-    - "$(curl -s http://metadata.platformequinix.com/metadata | jq -r '.network.addresses[] | select(.public == true) | select(.management == true) | select(.address_family == 4) | .address')"
+    - "$private_management_ip"
+    - "$public_management_ip"
 networking:
-  podSubnet: "$CNI_CIDR"
+  podSubnet: "$cni_cidr"
 certificatesDir: /etc/kubernetes/pki
 EOF
-    echo kubeadm init --config=/etc/kubeadm-config.yaml
-    kubeadm init --config=/etc/kubeadm-config.yaml
+
+  echo kubeadm init --config=/etc/kubeadm-config.yaml
+  kubeadm init --config=/etc/kubeadm-config.yaml
 }
 
 configure_network () {
@@ -129,40 +227,35 @@ gpu_config () {
   fi
 }
 
-metal_lb () {
-  export metal_namespace=$(cat $HOME/infra_config.json | jq -r .metal_namespace) && \
-  export metal_configmap=$(cat $HOME/infra_config.json | jq -r .metal_configmap) && \
-  export metal_network_cidr=$(cat $HOME/infra_config.json | jq -r .metal_network_cidr) && \
-  echo "Applying MetalLB manifests..." && \
-    cd $HOME/kube && \
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release)
-    sleep 15
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .metallb_release) 
-  sleep 30
+install_metallb () {
+  echo $metallb_namespace
+  echo $metallb_configmap
+  echo $metallb_network_cidr
+  echo $metallb_release
+  echo "Applying Metallb manifests..."
+  install_manifest "$metallb_release" && sleep 15
+  install_manifest "$metallb_release" && sleep 30
 
-  echo "Configuring MetalLB for $metal_network_cidr..." && \
-    cd $HOME/kube ; \
-    cat << EOF > metal_lb.yaml
+  echo "Configuring Metallb for $metallb_network_cidr..."
+  cat << EOF > $HOME/kube/metallb.yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   name: production
-  namespace: $metal_namespace
+  namespace: $metallb_namespace
 spec:
   addresses:
-  - $metal_network_cidr
-
+  - $metallb_network_cidr
 ---
-
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   name: empty
-  namespace: $metal_namespace
+  namespace: $metallb_namespace
 EOF
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f metal_lb.yaml || kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f metal_lb.yaml
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $HOME/kube/metallb.yaml || kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $HOME/kube/metallb.yaml
     sleep 15
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f metal_lb.yaml || kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f metal_lb.yaml
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $HOME/kube/metallb.yaml || kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $HOME/kube/metallb.yaml
 }
 
 kube_vip () {
@@ -254,7 +347,7 @@ modify_encryption_config () {
   sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/secrets.conf\n      name: secretconfig\n      readOnly: true|g' /etc/kubernetes/manifests/kube-apiserver.yaml
 }
 
-apply_extra () {
+install_extra () {
   for w in $(jq -r .extra[] < $HOME/workloads.json); do
     echo $w
     kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $w
@@ -262,19 +355,21 @@ apply_extra () {
 }
 
 bgp_routes () {
-    GATEWAY_IP=$(curl https://metadata.platformequinix.com/metadata | jq -r ".network.addresses[] | select(.public == false) | .gateway")
-    # TODO use metadata peer ips
-    ip route add 169.254.255.1 via $GATEWAY_IP
-    ip route add 169.254.255.2 via $GATEWAY_IP
-    sed -i.bak -E "/^\s+post-down route del -net 10\.0\.0\.0.* gw .*$/a \ \ \ \ up ip route add 169.254.255.1 via $GATEWAY_IP || true\n    up ip route add 169.254.255.2 via $GATEWAY_IP || true\n    down ip route del 169.254.255.1 || true\n    down ip route del 169.254.255.2 || true" /etc/network/interfaces
+  echo $gateway_ip
+  # TODO use metadata peer ips
+  ip route add 169.254.255.1 via $gateway_ip
+  ip route add 169.254.255.2 via $gateway_ip
+  sed -i.bak -E "/^\s+post-down route del -net 10\.0\.0\.0.* gw .*$/a \ \ \ \ up ip route add 169.254.255.1 via $gateway_ip || true\n    up ip route add 169.254.255.2 via $gateway_ip || true\n    down ip route del 169.254.255.1 || true\n    down ip route del 169.254.255.2 || true" /etc/network/interfaces
 }
 
 install_ccm () {
-  export equinix_api_key=$(cat $HOME/infra_config.json | jq -r .equinix_api_key) && \
-  export equinix_project_id=$(cat $HOME/infra_config.json | jq -r .equinix_project_id) && \
-  export equinix_metro=$(cat $HOME/infra_config.json | jq -r .equinix_metro) && \
-  export equinix_facility=$(cat $HOME/infra_config.json | jq -r .equinix_facility) && \
-  export loadbalancer=$(cat $HOME/infra_config.json | jq -r .loadbalancer) && \
+  echo $equinix_api_key
+  echo $equinix_project_id
+  echo $equinix_metro
+  echo $equinix_facility
+  echo $loadbalancer
+  local release=$(jq -r .ccm_version <<< $INFRA_CONFIG)
+
   cat << EOF > $HOME/kube/equinix-ccm-config.yaml
 apiVersion: v1
 kind: Secret
@@ -292,79 +387,36 @@ stringData:
 EOF
 
 kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $HOME/kube/equinix-ccm-config.yaml
-RELEASE=$(cat $HOME/infra_config.json | jq -r .ccm_version)
-kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://github.com/equinix/cloud-provider-equinix-metal/releases/download/$RELEASE/deployment.yaml
+
+install_manifest "https://github.com/equinix/cloud-provider-equinix-metal/releases/download/$release/deployment.yaml"
 }
 
-install_containerd && \
-enable_containerd && \
-load_config && \
-install_kube_tools && \
-sleep 30 && \
-
-export ccm_enabled=$(jq -r .ccm_enabled <<< $INFRA_CONFIG)
-export control_plane_node_count=$(jq -r .control_plane_node_count <<< $INFRA_CONFIG)
-export loadbalancer_type=$(jq -r .loadbalancer_type <<< $INFRA_CONFIG)
-export count_gpu=$(jq -r .count_gpu <<< $INFRA_CONFIG)
-export storage=$(jq -r .storage <<< $INFRA_CONFIG)
-export configure_ingress=$(jq -r .configure_ingress <<< $INFRA_CONFIG)
-export secrets_encryption=$(jq -r .secrets_encryption <<< $INFRA_CONFIG)
-
-if [ "$ccm_enabled" = "true" ]; then
-  echo KUBELET_EXTRA_ARGS=\"--cloud-provider=external\" > /etc/default/kubelet
-fi
-if [ "$control_plane_node_count" = "0" ]; then
-  echo "No control plane nodes provisioned, initializing single master..." ; \
-  init_cluster
-else
-  echo "Writing config for control plane nodes..." ; \
-  init_cluster_config
-fi
-
-sleep 180 && \
-bgp_routes && \
-configure_network
-if [ "$ccm_enabled" = "true" ]; then
-  install_ccm
-  sleep 30 # The CCM will probably take a while to reconcile
-  if [ "$loadbalancer_type" = "metallb" ]; then
-    metal_lb
-    metal_lb # running this twice just in case
+main () {
+  bootstrap
+  install_utils
+  load_config
+  extract_settings
+  install_containerd
+  enable_containerd
+  install_kube_tools
+  if [ "$ccm_enabled" = "true" ]; then echo KUBELET_EXTRA_ARGS=\"--cloud-provider=external\" > /etc/default/kubelet; fi
+  if [ "$control_plane_node_count" = "0" ]; then
+    echo "No control plane nodes provisioned, initializing single master..."
+    init_cluster
+  else
+    echo "Writing config for control plane nodes..."
+    init_cluster_config
   fi
-  if [ "$loadbalancer_type" = "kube-vip" ]; then
-    kube_vip
-  fi
-fi
-if [ "$count_gpu" = "0" ]; then
-  echo "Skipping GPU enable..."
-else
-  gpu_enable
-fi
-if [ "$storage" = "openebs" ]; then
-   kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .open_ebs_operator)
-elif [ "$storage" = "ceph" ]; then
-  ceph_pre_check && \
-  echo "Configuring Ceph Operator" ; \
-  ceph_rook_basic && \
-  ceph_storage_class ; \
-  kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $HOME/kube/ceph-sc.yaml
-else
-  echo "Skipping storage provider setup..."
-fi
-if [ "$configure_ingress" = "yes" ]; then
-  echo "Making controller schedulable..." ; \
-  kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/master- && \
-  echo "Configuring Ingress Controller..." ; \
-  kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f $(cat $HOME/workloads.json | jq .ingress_controller )
-else
-  echo "Not configuring ingress controller..."
-fi
-if [ "$secrets_encryption" = "yes" ]; then
-  echo "Secrets Encrypted selected...configuring..." && \
-  gen_encryption_config && \
-  sleep 60 && \
-  modify_encryption_config
-else
-  echo "Secrets Encryption not selected...finishing..."
-fi
-apply_extra || echo "Extra workloads not applied. Finished."
+  echo "temporarily reducing to 60, sleeping for 60s..." && sleep 60
+  #echo "sleeping for 180s..." && sleep 180
+
+  bgp_routes
+  configure_network
+  if [ "$ccm_enabled" = "true" ]; then install_ccm; sleep 30; fi
+  if [ "$loadbalancer_type" = "metallb" ]; then install_metallb; sleep 30; install_metallb; fi
+  if [ "$loadbalancer_type" = "kube-vip" ]; then kube_vip; sleep 30; kube_vip; fi
+
+  install_extra
+}
+
+main
