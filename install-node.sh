@@ -5,6 +5,7 @@ export PRODUCT_NAME=openmesh
 export BUILD_DIR=$HOME/$PRODUCT_NAME-install
 
 mkdir -p $HOME/kube
+mkdir -p /data/kafka
 
 load_infra_config () {
   INFRA_CONFIG=$(cat "$HOME/infra_config.json")
