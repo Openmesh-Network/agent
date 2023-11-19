@@ -476,7 +476,7 @@ metadata:
   name: data-broker0-volume
 spec:
   capacity:
-    storage: 100Gi
+    storage: 400Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
@@ -503,7 +503,7 @@ metadata:
   name: data-broker$n-volume
 spec:
   capacity:
-    storage: 100Gi
+    storage: 400Gi
   volumeMode: Filesystem
   accessModes:
   - ReadWriteOnce
