@@ -2,6 +2,8 @@
 
 bootstrap () {
   export PRODUCT_NAME=openmesh
+  export DOMAIN="tech.$PRODUCT_NAME.network"
+  export DOMAIN_WITH_DASHES=$(sed 's/\./-/g' <<< $DOMAIN)
 }
 
 load_config () {
@@ -25,6 +27,22 @@ extract_settings () {
 }
 
 install_features () {
+
+  cat << EOF > ./features-cert.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ws-$uniq_id-$DOMAIN_WITH_DASHES-tls-static
+  namespace: $PRODUCT_NAME
+spec:
+  secretName: ws-$uniq_id-$DOMAIN_WITH_DASHES-tls-static
+  issuerRef:
+    name: letsencrypt-prod
+  dnsNames:
+  - 'ws.$uniq_id.$DOMAIN'
+EOF
+  kubectl apply -f ./features-cert.yaml
+
   cat << EOF > features-sa.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -46,13 +64,20 @@ EOF
     echo helm dependency build
     helm dependency build
 
+    if [[ $(jq -r .ingress.enabled <<< $feature) == "true" ]]; then
+      local hostname=$(jq -r .ingress.hostname <<< $feature)
+      local tlsArgs="--set ingress.hosts[0].host=$hostname.$uniq_id.$DOMAIN --set ingress.tls[0].secretName=$hostname-$uniq_id-$DOMAIN_WITH_DASHES-tls-static --set ingress.tls[0].hosts[0]=$hostname.$uniq_id.$DOMAIN"
+    else
+      local tlsArgs='';
+    fi
+
     while read workload; do
       echo $(jq -r .command <<< $feature) -n $(jq -r .namespace <<< $feature) $workload $(jq -r .helmRepoName <<< $feature)/$(jq -r .helmChartName <<< $feature) \
-        $(jq -r .args <<< $feature) \
+        $(jq -r .args <<< $feature) $tlsArgs \
         -f $(basename $(jq -r .helmValuesRepo <<< $feature) .git)/$(jq -r .pathToChart <<< $feature)/$(jq -r .name <<< $feature)/$workload-values.yaml
 
       $(jq -r .command <<< $feature) -n $(jq -r .namespace <<< $feature) $workload $(jq -r .helmRepoName <<< $feature)/$(jq -r .helmChartName <<< $feature) \
-        $(jq -r .args <<< $feature) \
+        $(jq -r .args <<< $feature) $tlsArgs \
         -f $(basename $(jq -r .helmValuesRepo <<< $feature) .git)/$(jq -r .pathToChart <<< $feature)/$(jq -r .name <<< $feature)/$workload-values.yaml
     done <<< $(jq -r .workloads[] <<< $feature)
   done <<< $(jq -c .[] <<< $FEATURES)
