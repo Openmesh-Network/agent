@@ -633,6 +633,22 @@ configure_crs () {
   fi
   kubectl apply -n confluent -f crs/connect.json || kubectl apply -n confluent -f crs/connect.json
   kubectl apply -n confluent -f crs/schemaregistry.json || kubectl apply -n confluent -f crs/schemaregistry.json
+
+  sed "s/replace-with-real-postgres-password/$POSTGRES_PASSWORD/" ./crs/postgressink.tpl.yaml > ./crs/postgressink.yaml
+  kubectl apply -n confluent -f crs/postgressink.yaml || kubectl apply -n confluent -f crs/postgressink.yaml
+}
+
+check_status () {
+local namespace=$1
+local resource=$2
+local rollout_status_cmd="kubectl rollout status -n $namespace $resource"
+local attempts=0
+
+until $rollout_status_cmd || [ $attempts -gt 60 ]; do
+  $rollout_status_cmd
+  attempts=$((attempts + 1))
+  sleep 10
+done
 }
 
 main () {
@@ -655,8 +671,12 @@ main () {
   install_grafana
   install_cfk
   configure_zookeeper
+  check_status confluent "statefulset.apps/zookeeper"
   configure_broker $nodes
+  check_status confluent "statefulset.apps/kafka"
   configure_crs $nodes
+  check_status confluent "statefulset.apps/connect"
+  check_status confluent "statefulset.apps/schemaregistry"
 }
 
 main

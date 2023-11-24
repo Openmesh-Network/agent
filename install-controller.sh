@@ -407,8 +407,7 @@ main () {
     echo "Writing config for control plane nodes..."
     init_cluster_config
   fi
-  echo "temporarily reducing to 60, sleeping for 60s..." && sleep 60
-  #echo "sleeping for 180s..." && sleep 180
+  echo "sleeping for 30s..." && sleep 30
 
   bgp_routes
   configure_network
