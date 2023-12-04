@@ -288,22 +288,6 @@ spec:
                 operator: Equal
 EOF
   kubectl apply -f ./issuer.yaml
-
-  cat << EOF > ./cert.yaml
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: query-$uniq_id-$DOMAIN_WITH_DASHES-tls-static
-  namespace: $PRODUCT_NAME
-spec:
-  secretName: query-$uniq_id-$DOMAIN_WITH_DASHES-tls-static
-  issuerRef:
-    name: letsencrypt-prod
-  dnsNames:
-  - 'query.$uniq_id.$DOMAIN'
-EOF
-  kubectl apply -f ./cert.yaml
-
   sleep 10 && popd
 }
 
