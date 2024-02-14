@@ -37,7 +37,6 @@ EOF
   kubectl apply -f ./features-sa.yaml
 
   while read feature; do
-    [ -d "$(basename $(jq -r .helmValuesRepo <<< $feature) .git)" ] || git clone https://$gh_username:$gh_pat@$(jq -r .helmValuesRepo <<< $feature)
     echo helm repo add \
       $(jq -r .helmRepoName <<< $feature) \
       $(jq -r .helmRepoUrl <<< $feature)
@@ -56,13 +55,13 @@ EOF
     fi
 
     while read workload; do
-      echo $(jq -r .command <<< $feature) -n $(jq -r .namespace <<< $feature) $workload $(jq -r .helmRepoName <<< $feature)/$(jq -r .helmChartName <<< $feature) \
-        $(jq -r .args <<< $feature) $tlsArgs \
-        -f $(basename $(jq -r .helmValuesRepo <<< $feature) .git)/$(jq -r .pathToChart <<< $feature)/$(jq -r .name <<< $feature)/$workload-values.yaml
+      echo $(jq -r .command <<< $feature) -n $(jq -r .namespace <<< $feature) $workload \
+        $(jq -r .helmRepoName <<< $feature)/${workload}$(jq -r .helmChartNameSuffix <<< $feature) \
+        $(jq -r .args <<< $feature) $tlsArgs
 
-      $(jq -r .command <<< $feature) -n $(jq -r .namespace <<< $feature) $workload $(jq -r .helmRepoName <<< $feature)/$(jq -r .helmChartName <<< $feature) \
-        $(jq -r .args <<< $feature) $tlsArgs \
-        -f $(basename $(jq -r .helmValuesRepo <<< $feature) .git)/$(jq -r .pathToChart <<< $feature)/$(jq -r .name <<< $feature)/$workload-values.yaml
+      $(jq -r .command <<< $feature) -n $(jq -r .namespace <<< $feature) $workload \
+        $(jq -r .helmRepoName <<< $feature)/${workload}$(jq -r .helmChartNameSuffix <<< $feature) \
+        $(jq -r .args <<< $feature) $tlsArgs
     done <<< $(jq -r .workloads[] <<< $feature)
   done <<< $(jq -c .[] <<< $FEATURES)
 }
