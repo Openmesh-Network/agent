@@ -49,7 +49,7 @@ EOF
 
     if [[ $(jq -r .ingress.enabled <<< $feature | tr '[:upper:]' '[:lower:]') == "true" ]]; then
       local hostname=$(jq -r .ingress.hostname <<< $feature)
-      local tlsArgs="--set ingress.annotations.cert-manager\.io/issuer=letsencrypt-prod --set ingress.hosts[0].host=$hostname.$uniq_id.$DOMAIN --set ingress.tls[0].secretName=$hostname-$uniq_id-$DOMAIN_WITH_DASHES-tls-dynamic --set ingress.tls[0].hosts[0]=$hostname.$uniq_id.$DOMAIN"
+      local tlsArgs="--set ingress.annotations.cert-manager\.io/issuer=letsencrypt-prod --set ingress.hosts[0].host=$hostname.$uniq_id.$DOMAIN --set ingress.hosts[0].paths[0].path=/ --set ingress.hosts[0].paths[0].pathType=ImplementationSpecific --set ingress.tls[0].secretName=$hostname-$uniq_id-$DOMAIN_WITH_DASHES-tls-dynamic --set ingress.tls[0].hosts[0]=$hostname.$uniq_id.$DOMAIN"
     else
       local tlsArgs='';
     fi
